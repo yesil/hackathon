@@ -21,13 +21,41 @@ Enable content creators to monetize their work directly through social media wit
 ### 2.1 Primary Use Case: Content Monetization
 **Flow:**
 1. Creator writes article, produces video content, or offers early access to upcoming videos
-2. Creator posts teaser/excerpt on social media
-3. Creator DMs the bot with intent to monetize
-4. Bot requests full content URL
-5. Creator provides URL + sets price
-6. Bot generates QR code and comments on original post
-7. Buyers scan QR code, pay in BTC.B
-8. Buyers instantly receive access link to full content
+2. **Creator opens the mobile app and pastes the full content URL**
+   - Creator opens the iOS app and navigates to "Create Content" section
+   - Creator pastes the full content URL (YouTube unlisted, Notion page, Substack post, etc.)
+   - App automatically detects content type and validates URL accessibility
+   - App extracts basic metadata (title, description, thumbnail if available)
+3. **Creator sets price in BTC.B within the app**
+   - Creator reviews the auto-extracted content preview
+   - Creator sets price using BTC.B amount selector (with USD equivalent shown)
+   - Creator can edit the auto-generated title and description
+   - Creator confirms content details and pricing
+4. **App generates excerpt/teaser content and QR code with payment information**
+   - App creates excerpt/teaser based on content type:
+     - **Video**: First 30 seconds or thumbnail with description
+     - **Article**: First 2-3 paragraphs or custom excerpt
+     - **General**: Title, description, and pricing info
+   - App generates unique QR code containing payment gateway URL and content ID
+   - App provides multiple sharing formats:
+     - Image with excerpt + QR code overlay
+     - Text excerpt + separate QR code image
+     - Social media optimized formats (Twitter, Instagram, etc.)
+5. **Creator posts the excerpt/teaser along with QR code on different social media platforms**
+   - Creator uses app's share functionality or saves content to camera roll
+   - Creator posts manually on preferred social media platforms
+   - QR code and excerpt are designed to be platform-agnostic
+6. **Buyers scan QR code, pay in BTC.B**
+   - **Buyer scans QR code**: Phone camera or any QR scanner opens the payment link
+   - **Payment link opens the app**: If app is installed, deep link opens payment screen
+   - **Content preview in app**: Buyer sees content details, price, and creator info
+   - **Payment confirmation**: Buyer reviews payment amount and confirms with biometric auth
+   - **Transaction processing**: BTC.B payment processes on Avalanche C-Chain
+7. **Buyers instantly receive access link to full content**
+   - App displays "Payment Successful" confirmation
+   - Access link to full content appears immediately in the app
+   - Link is also sent via push notification for easy access
+   - Buyer can access content immediately or save to "My Purchases" in app
 
 ### 2.2 Secondary Use Case: Tipping
 **Flow:**
