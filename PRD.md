@@ -303,6 +303,24 @@ The backend employs a hybrid architecture: on-chain smart contracts for payment 
     - **Analytics Integration**: More granular tracking of content consumption behavior directly within the platform.
     - **Value Add**: Provides a premium feel and centralized access point for all purchased content. 
 
+### 10.2 Interactive Live Q&A Mode for Creators
+- **Concept:** Introduce a "Live Mode" within the creator's iOS wallet application, designed for use during live streams (on any platform like YouTube Live, X Spaces, etc.). Creators can generate and display a unique QR code for their live Q&A session. Viewers would scan this QR code using their app to enter the interactive mode for that specific creator and session, allowing them to send questions or comments accompanied by a BTC.B tip.
+- **Creator Dashboard (Live Mode):**
+    - Displays an incoming feed of questions/comments from viewers, along with the tipper's identifier (e.g., X handle if linked) and the BTC.B tip amount.
+    - Provides tools to manage the Q&A flow, such as:
+        - Sorting questions primarily by tip amount (highest first) to prioritize.
+        - Secondary sorting by time (newest/oldest).
+        - Ability to mark questions as "answered," "to discuss," or "dismiss."
+- **Viewer Experience:**
+    - Viewers scan the creator's Live Mode QR code to join the interactive session.
+    - Once in the session, viewers can compose a question/comment and attach a BTC.B tip to send it.
+    - The app could allow viewers to save or easily re-access active/frequent Live Mode sessions for creators they follow, for convenience (e.g., persisting the QR code destination or session link).
+- **Benefits:**
+    - **New Monetization Channel:** Enables direct monetization of live interactions and Q&A sessions.
+    - **Enhanced Engagement:** Offers a structured way for creators to manage and prioritize audience questions during live events.
+    - **Platform Agnostic Tool:** Provides a consistent Q&A management tool regardless of the streaming platform used by the creator.
+    - **Increased BTC.B Utility:** Further drives the use of BTC.B within the platform ecosystem.
+
 ## 11. Marketing Pitch & User Onboarding Strategy
 
 ### 11.1 Core Message:
