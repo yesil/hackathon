@@ -47,111 +47,120 @@ class ContentAPIService: ObservableObject {
         self.creatorWalletAddress = creatorWalletAddress
     }
 
-    func fetchContent() {
+    // Updated to be an async function
+    func fetchContent() async throws {
         guard let url = URL(string: endpointUrl) else {
-            errorMessage = "Invalid URL"
-            return
+            DispatchQueue.main.async {
+                self.errorMessage = "Invalid URL"
+            }
+            throw ContentAPIError.invalidURL // Define this error type or use a generic one
         }
 
-        print("Fetching content from URL: \(endpointUrl)") // Log the URL
+        print("Fetching content from URL: \(endpointUrl)")
 
-        isLoading = true
-        errorMessage = nil
+        DispatchQueue.main.async {
+            self.isLoading = true
+            self.errorMessage = nil
+        }
 
-        URLSession.shared.dataTask(with: url) { data, response, error in
+        // Using try await with URLSession's async data method
+        let (data, response) = try await URLSession.shared.data(from: url)
+        
+        // Log raw response before attempting to decode
+        if let jsonString = String(data: data, encoding: .utf8) {
+            print("Raw JSON response received: \(jsonString)")
+        } else {
+            print("Could not convert raw data to string for logging (before decoding attempt).")
+        }
+
+        // Check response status code if needed, e.g., guard (response as? HTTPURLResponse)?.statusCode == 200 else { ... }
+        guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+            print("HTTP Error: Status code \(statusCode)")
+            // Optionally capture more response details for the error
             DispatchQueue.main.async {
                 self.isLoading = false
-                if let error = error {
-                    print("####################################################")
-                    print("!!! NETWORK ERROR OCCURRED !!!")
-                    print("Error: \(error)")
-                    print("Localized Description: \(error.localizedDescription)")
-                    print("####################################################")
-                    self.errorMessage = "Failed to fetch data: \(error.localizedDescription)"
-                    return
-                }
+                self.errorMessage = "Server error (status: \(statusCode))"
+            }
+            throw ContentAPIError.serverError(statusCode: statusCode) // Define this error
+        }
 
-                guard let data = data else {
-                    print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
-                    print("!!! NO DATA RECEIVED FROM SERVER !!!")
-                    print("Response object (if any): \(String(describing: response))")
-                    print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
-                    self.errorMessage = "No data received"
-                    return
-                }
+        do {
+            let decoder = JSONDecoder()
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+            dateFormatter.locale = Locale(identifier: "en_US_POSIX")
+            dateFormatter.timeZone = TimeZone(secondsFromGMT: 0)
+            decoder.dateDecodingStrategy = .formatted(dateFormatter)
 
-                // Log raw response before attempting to decode
-                if let jsonString = String(data: data, encoding: .utf8) {
-                    print("Raw JSON response received: \(jsonString)")
+            let apiResponse = try decoder.decode(ApiResponse.self, from: data)
+            
+            DispatchQueue.main.async {
+                self.links = apiResponse.links
+                self.isLoading = false
+                if apiResponse.links.isEmpty {
+                    print("API returned an empty list of links.")
                 } else {
-                    print("Could not convert raw data to string for logging (before decoding attempt).")
-                }
-
-                do {
-                    let decoder = JSONDecoder()
-                    // It's good practice to set a date decoding strategy if your dates are in a consistent format
-                    // For example, if createdAt is always "yyyy-MM-dd HH:mm:ss":
-                    let dateFormatter = DateFormatter()
-                    dateFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
-                    dateFormatter.locale = Locale(identifier: "en_US_POSIX") // Important for consistent parsing
-                    dateFormatter.timeZone = TimeZone(secondsFromGMT: 0) // Assuming UTC if not specified
-                    decoder.dateDecodingStrategy = .formatted(dateFormatter)
-
-                    let apiResponse = try decoder.decode(ApiResponse.self, from: data)
-                    self.links = apiResponse.links
-
-                    if apiResponse.links.isEmpty {
-                        // Since pagination is removed, we just log that the list is empty.
-                        print("API returned an empty list of links.")
-                        // If you still want to log the raw JSON when links are empty, you can add it here:
-                        // if let jsonString = String(data: data, encoding: .utf8) {
-                        //     print("Raw JSON response (empty links): \(jsonString)")
-                        // }
-                    } else {
-                        print("Successfully fetched and decoded \(apiResponse.links.count) link(s).")
-                    }
-
-                } catch let decodingError as DecodingError {
-                    print("----------------------------------------------------")
-                    print("!!! JSON DECODING ERROR CAUGHT !!!")
-                    print("ErrorMessage to be set: Failed to decode JSON: \(decodingError.localizedDescription)")
-                    print("Full Error Object: \(decodingError)") // This will print the standard description of the error
-                    print("----------------------------------------------------")
-
-                    self.errorMessage = "Failed to decode JSON: \(decodingError.localizedDescription)"
-                    print("Breaking down error further:")
-                    
-                    // Print specific details from DecodingError
-                    switch decodingError {
-                    case .typeMismatch(let type, let context):
-                        print("Type mismatch: \(type), Context: \(context.debugDescription), Path: \(context.codingPath.map { $0.stringValue }.joined(separator: " -> "))")
-                    case .valueNotFound(let type, let context):
-                        print("Value not found: \(type), Context: \(context.debugDescription), Path: \(context.codingPath.map { $0.stringValue }.joined(separator: " -> "))")
-                    case .keyNotFound(let key, let context):
-                        print("Key not found: \(key.stringValue), Context: \(context.debugDescription), Path: \(context.codingPath.map { $0.stringValue }.joined(separator: " -> "))")
-                    case .dataCorrupted(let context):
-                        print("Data corrupted: Context: \(context.debugDescription), Path: \(context.codingPath.map { $0.stringValue }.joined(separator: " -> "))")
-                    @unknown default:
-                        print("An unknown decoding error occurred.")
-                    }
-
-                    if let jsonString = String(data: data, encoding: .utf8) {
-                        print("Raw JSON response causing error: \(jsonString)")
-                    } else {
-                        print("Could not convert raw data to string for logging.")
-                    }
-                } catch {
-                    print("****************************************************")
-                    print("!!! GENERIC ERROR DURING DECODING CAUGHT !!!")
-                    print("ErrorMessage to be set: An unexpected error occurred during decoding: \(error.localizedDescription)")
-                    print("Full Error Object: \(error)")
-                    print("****************************************************")
-                    // Catch any other non-DecodingError types
-                    self.errorMessage = "An unexpected error occurred during decoding: \(error.localizedDescription)"
-                    print("Unexpected error during decoding: \(error)")
+                    print("Successfully fetched and decoded \(apiResponse.links.count) link(s).")
                 }
             }
-        }.resume()
+        } catch let decodingError as DecodingError {
+            DispatchQueue.main.async {
+                self.isLoading = false
+                self.errorMessage = "Failed to decode JSON: \(decodingError.localizedDescription)"
+            }
+            print("----------------------------------------------------")
+            print("!!! JSON DECODING ERROR CAUGHT !!!")
+            print("ErrorMessage to be set: Failed to decode JSON: \(decodingError.localizedDescription)")
+            print("Full Error Object: \(decodingError)") 
+            print("----------------------------------------------------")
+            print("Breaking down error further:")
+            switch decodingError {
+            case .typeMismatch(let type, let context):
+                print("Type mismatch: \(type), Context: \(context.debugDescription), Path: \(context.codingPath.map { $0.stringValue }.joined(separator: " -> "))")
+            case .valueNotFound(let type, let context):
+                print("Value not found: \(type), Context: \(context.debugDescription), Path: \(context.codingPath.map { $0.stringValue }.joined(separator: " -> "))")
+            case .keyNotFound(let key, let context):
+                print("Key not found: \(key.stringValue), Context: \(context.debugDescription), Path: \(context.codingPath.map { $0.stringValue }.joined(separator: " -> "))")
+            case .dataCorrupted(let context):
+                print("Data corrupted: Context: \(context.debugDescription), Path: \(context.codingPath.map { $0.stringValue }.joined(separator: " -> "))")
+            @unknown default:
+                print("An unknown decoding error occurred.")
+            }
+            if let jsonString = String(data: data, encoding: .utf8) {
+                print("Raw JSON response causing error: \(jsonString)")
+            } else {
+                print("Could not convert raw data to string for logging.")
+            }
+            throw decodingError // Re-throw the decoding error
+        } catch {
+            DispatchQueue.main.async {
+                self.isLoading = false
+                self.errorMessage = "An unexpected error occurred: \(error.localizedDescription)"
+            }
+            print("****************************************************")
+            print("!!! GENERIC ERROR DURING DECODING OR OTHER UNHANDLED ERROR !!!")
+            print("ErrorMessage to be set: An unexpected error occurred: \(error.localizedDescription)")
+            print("Full Error Object: \(error)")
+            print("****************************************************")
+            throw error // Re-throw
+        }
+    }
+}
+
+// Define a simple error enum for ContentAPIService if not already present
+enum ContentAPIError: Error, LocalizedError {
+    case invalidURL
+    case serverError(statusCode: Int)
+    // Add other specific errors as needed
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidURL:
+            return "The API endpoint URL is invalid."
+        case .serverError(let statusCode):
+            return "The server returned an error (Status Code: \(statusCode))."
+        }
     }
 }
 
@@ -166,6 +175,7 @@ struct UserContentView: View {
 
     @StateObject private var apiService: ContentAPIService
     @State private var showAllContents = false // To control navigation or sheet presentation
+    @State private var showingNewContentView = false // State to present NewContentView as a sheet
     
     // Store the blockchainService instance. Could be @ObservedObject if passed from parent.
     private var blockchainService: BlockchainService
@@ -185,7 +195,7 @@ struct UserContentView: View {
                     VStack(alignment: .leading, spacing: 20) {
                         // New Content Button
                         Button(action: {
-                            // TODO: Action for new content
+                            showingNewContentView = true // Set state to true to show the sheet
                             print("New content button tapped")
                         }) {
                             HStack(spacing: 15) {
@@ -236,7 +246,7 @@ struct UserContentView: View {
                         } else {
                             LazyVStack(spacing: 15) {
                                 ForEach(apiService.links.prefix(3)) { link in // Display initial 3 items
-                                    ContentCardView(link: link)
+                                    ContentCardView(link: link, blockchainService: blockchainService)
                                 }
                             }
                             .padding(.horizontal)
@@ -261,12 +271,29 @@ struct UserContentView: View {
                         Spacer() // Pushes content to the top
                     }
                 }
+                .refreshable {
+                    print("Refresh triggered for My Past Contents")
+                    do {
+                        try await apiService.fetchContent()
+                    } catch {
+                        // The error should already be set on apiService.errorMessage by fetchContent
+                        // You could add additional logging here if specific to the refresh action
+                        print("Error during pull-to-refresh: \(error.localizedDescription)")
+                    }
+                }
                 .navigationBarHidden(true)
             }
             .onAppear {
                 // Ensure walletAddress is not empty before fetching
                 if !blockchainService.walletAddress.isEmpty {
-                    apiService.fetchContent()
+                    Task {
+                        do {
+                            try await apiService.fetchContent()
+                        } catch {
+                            // Error is already set on apiService.errorMessage by fetchContent itself
+                            print("Error during onAppear fetchContent: \(error.localizedDescription)")
+                        }
+                    }
                 } else {
                     apiService.errorMessage = "Wallet address not available. Content will be fetched when address is ready."
                     print("UserContentView: Wallet address is initially empty. Waiting for it to become available.")
@@ -275,13 +302,22 @@ struct UserContentView: View {
             .onChange(of: blockchainService.walletAddress) { newWalletAddress in
                 if !newWalletAddress.isEmpty && apiService.links.isEmpty && (apiService.errorMessage != nil || apiService.links.isEmpty) {
                     print("UserContentView: Wallet address became available (\(newWalletAddress)). Fetching content.")
-                    apiService.fetchContent()
+                    Task {
+                        do {
+                            try await apiService.fetchContent()
+                        } catch {
+                            // Error is already set on apiService.errorMessage by fetchContent itself
+                            print("Error during onChange fetchContent: \(error.localizedDescription)")
+                        }
+                    }
                 }
             }
             .sheet(isPresented: $showAllContents) {
-                // TODO: Implement AllContentsView or similar
-                // For now, just a placeholder
-                AllContentsView(links: apiService.links)
+                AllContentsView(links: apiService.links, blockchainService: blockchainService)
+            }
+            // Add sheet modifier for NewContentView
+            .sheet(isPresented: $showingNewContentView) {
+                NewContentView(blockchainService: blockchainService)
             }
         }
     }
@@ -290,6 +326,7 @@ struct UserContentView: View {
 // MARK: - Placeholder for All Contents View
 struct AllContentsView: View {
     let links: [LinkItem]
+    @ObservedObject var blockchainService: BlockchainService
     @Environment(\.presentationMode) var presentationMode
 
     var body: some View {
@@ -299,7 +336,7 @@ struct AllContentsView: View {
                 ScrollView {
                     LazyVStack(spacing: 15) {
                         ForEach(links) { link in
-                            ContentCardView(link: link)
+                            ContentCardView(link: link, blockchainService: blockchainService)
                         }
                     }
                     .padding()

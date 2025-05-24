@@ -3,6 +3,7 @@ import SwiftUI
 // MARK: - ContentCardView
 struct ContentCardView: View {
     let link: LinkItem
+    @ObservedObject var blockchainService: BlockchainService
 
     // Helper to format date string to a more readable format
     private func formatDate(_ dateString: String) -> String {
@@ -29,21 +30,29 @@ struct ContentCardView: View {
         return "link.circle.fill" // Default SF Symbol for a link
     }
     
+    private var tokenAmountInFullUnits: Decimal {
+        guard let priceInSmallestUnit = Decimal(string: link.priceInERC20) else {
+            return 0
+        }
+        // Assuming priceInERC20 is in the smallest unit and the token has 18 decimals
+        return priceInSmallestUnit / pow(10, 18)
+    }
+
     private var earningsUSD: String {
-        // Assuming priceInERC20 needs conversion. For now, placeholder.
-        // This will require actual conversion logic based on ERC20 token price and amount.
-        // The API provides priceInERC20, which needs to be interpreted.
-        // For mockup purposes, let's display a static value or a transformation of priceInERC20.
-        let mockUSDValue = (Double(link.priceInERC20) ?? 0) / 1_000_000_000_000_000_000 * 2000 // Example conversion
-        return String(format: "$%.2f", mockUSDValue)
+        // TEMPORARY PREVIEW DEBUG: Return hardcoded string
+        // return "$1.80"
+        guard let btcPrice = blockchainService.currentBTCPriceUSD, btcPrice > 0 else {
+            return "$?.??" // Price not available
+        }
+        let usdValue = tokenAmountInFullUnits * btcPrice
+        return FormattingUtils.formatUsd(usdValue) // Use your existing formatting utility
     }
 
     private var earningsBTC: String {
-        // Placeholder for BTC earnings. Needs actual calculation.
-        // Let's assume 1 USD = 0.000017 BTC for mockup
-        let mockUSDValue = (Double(link.priceInERC20) ?? 0) / 1_000_000_000_000_000_000 * 2000
-        let mockBTCValue = mockUSDValue * 0.000017 
-        return String(format: "%.7f BTC", mockBTCValue)
+        // TEMPORARY PREVIEW DEBUG: Return hardcoded string
+        // return "0.0000304 BTC"
+        let btcValue = tokenAmountInFullUnits
+        return "\(FormattingUtils.formatBtcB(btcValue, maxFractionDigits: 7)) BTC" // Use your formatting utility
     }
 
 
@@ -108,43 +117,3 @@ struct ContentCardView: View {
         .shadow(color: Color.black.opacity(0.1), radius: 3, x: 0, y: 1)
     }
 }
-
-// MARK: - Preview
-struct ContentCardView_Previews: PreviewProvider {
-    static var previews: some View {
-        // Create a sample LinkItem for previewing
-        let sampleLink = LinkItem(
-            linkId: "previewLinkId123",
-            title: "FAKER FULL INTERVIEW - EXCLUSIVE",
-            buyShortCode: "PREVIEW",
-            accessShortCode: "PVWACC",
-            originalUrl: "https://www.youtube.com/watch?v=example",
-            priceInERC20: "1800000000000000000", // Represents 1.8 of the token (assuming 18 decimals)
-            isActive: 1,
-            createdAt: "2025-05-23 11:25:00",
-            shareableBuyLink: "https://example.com/buy/PREVIEW",
-            socialPosts: SocialPosts(twitter: "Twitter post", instagram: "Insta post")
-        )
-
-        ScrollView { // Added ScrollView for better preview context
-            VStack(spacing: 20) {
-                 ContentCardView(link: sampleLink)
-                 ContentCardView(link: LinkItem(
-                    linkId: "previewLinkId456",
-                    title: "Another Great Content Item",
-                    buyShortCode: "ANOTHER",
-                    accessShortCode: "ANOACC",
-                    originalUrl: "https://www.someotherlink.com/article/story",
-                    priceInERC20: "2500000000000000000", // 2.5 tokens
-                    isActive: 1,
-                    createdAt: "2025-05-22 10:15:00",
-                    shareableBuyLink: "https://example.com/buy/ANOTHER",
-                    socialPosts: SocialPosts(twitter: "Another tweet", instagram: "Another picture")
-                ))
-            }
-            .padding()
-        }
-        .background(Color.givabitPurple)
-        .preferredColorScheme(.dark)
-    }
-} 
