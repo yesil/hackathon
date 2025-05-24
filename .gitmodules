@@ -1,0 +1,9 @@
+[submodule "givabit-contractas/lib/forge-std"]
+	path = givabit-contractas/lib/forge-std
+	url = https://github.com/foundry-rs/forge-std
+[submodule "givabit-contracts/lib/forge-std"]
+	path = givabit-contracts/lib/forge-std
+	url = https://github.com/foundry-rs/forge-std
+[submodule "givabit-contracts/lib/openzeppelin-contracts"]
+	path = givabit-contracts/lib/openzeppelin-contracts
+	url = https://github.com/openzeppelin/openzeppelin-contracts

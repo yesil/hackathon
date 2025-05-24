@@ -1,17 +1,50 @@
 import SwiftUI
 
+// MARK: - Formatting Utilities
+struct FormattingUtils {
+    static func formatBtcB(_ amount: Decimal, maxFractionDigits: Int = 8, minFractionDigits: Int = 0) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.maximumFractionDigits = maxFractionDigits
+        formatter.minimumFractionDigits = minFractionDigits
+        return formatter.string(from: amount as NSDecimalNumber) ?? "0"
+    }
+
+    static func formatUsd(_ amount: Decimal) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = "USD" // Or other preferred currency
+        // USD typically has 2 fraction digits by default with .currency
+        return formatter.string(from: amount as NSDecimalNumber) ?? "$0.00"
+    }
+    
+    static func extractDecimalFromHex(_ hexString: String, decimals: Int) -> Decimal {
+        let cleanedHex = hexString.hasPrefix("0x") ? String(hexString.dropFirst(2)) : hexString
+        var intValue: UInt64 = 0
+        if !cleanedHex.isEmpty {
+            let success = Scanner(string: cleanedHex).scanHexInt64(&intValue)
+            if !success {
+                print("Warning: Failed to parse hex value for amount: \\(hexString). Defaulting to 0.")
+                intValue = 0
+            }
+        }
+        return Decimal(intValue) / pow(10, decimals)
+    }
+}
+
 struct WalletView: View {
     @StateObject private var blockchainService = BlockchainService()
     @State private var showingTransactionDetails = false
     @State private var selectedTransaction: TransactionItem?
     @State private var showingNetworkSettings = false
+    @State private var showingSendView = false
     
     var body: some View {
         NavigationView {
             ScrollView {
                 VStack(spacing: 20) {
-                    // Network Status Card
-                    networkStatusCard
+                    // Network Status Card - Removed
+                    // networkStatusCard
                     
                     // Balance Card
                     balanceCard
@@ -26,24 +59,6 @@ struct WalletView: View {
             }
             .navigationTitle("Wallet")
             .navigationBarTitleDisplayMode(.large)
-            .toolbar {
-                ToolbarItemGroup(placement: .navigationBarTrailing) {
-                    Button(action: {
-                        showingNetworkSettings = true
-                    }) {
-                        Image(systemName: "globe")
-                    }
-                    
-                    Button(action: {
-                        Task {
-                            await blockchainService.refreshWalletData()
-                        }
-                    }) {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .disabled(blockchainService.isLoading)
-                }
-            }
             .refreshable {
                 await blockchainService.refreshWalletData()
             }
@@ -61,45 +76,15 @@ struct WalletView: View {
         .sheet(isPresented: $showingNetworkSettings) {
             NetworkSettingsView(blockchainService: blockchainService)
         }
+        .sheet(isPresented: $showingSendView) {
+            SendView(blockchainService: blockchainService)
+        }
     }
     
     // MARK: - Network Status Card
-    private var networkStatusCard: some View {
-        HStack(spacing: 12) {
-            // Connection Status Indicator
-            Circle()
-                .fill(blockchainService.isConnected ? .green : .red)
-                .frame(width: 8, height: 8)
-            
-            VStack(alignment: .leading, spacing: 2) {
-                Text(blockchainService.config.name)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .foregroundColor(.primary)
-                
-                Text(blockchainService.isConnected ? "Real-time sync active" : "Disconnected")
-                    .font(.caption)
-                    .foregroundColor(blockchainService.isConnected ? .green : .red)
-            }
-            
-            Spacer()
-            
-            if blockchainService.isConnected {
-                Image(systemName: "bolt.fill")
-                    .foregroundColor(.yellow)
-                    .font(.caption)
-            }
-        }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(.regularMaterial)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(blockchainService.isConnected ? Color.green.opacity(0.3) : Color.red.opacity(0.3), lineWidth: 1)
-        )
-    }
+    // private var networkStatusCard: some View {
+    //     // ... existing network status card code ...
+    // }
     
     // MARK: - Balance Card
     private var balanceCard: some View {
@@ -110,54 +95,26 @@ struct WalletView: View {
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                 
+                // Display USD Value Prominently
+                Text(FormattingUtils.formatUsd(blockchainService.balance.usdValue))
+                    .font(.largeTitle)
+                    .fontWeight(.bold)
+                    .foregroundColor(.primary)
+                
+                // Display BTC.B Value Underneath
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    Text(formatBalance(blockchainService.balance.btcbBalance))
-                        .font(.largeTitle)
-                        .fontWeight(.bold)
-                        .foregroundColor(.primary)
+                    Text(FormattingUtils.formatBtcB(blockchainService.balance.btcbBalance))
+                        .font(.title2) // Adjusted font for BTC.B
+                        .foregroundColor(.secondary) // Adjusted color for BTC.B
                     
                     Text("BTC.B")
-                        .font(.title3)
+                        .font(.title3) // Kept unit font or adjust as needed
                         .foregroundColor(.secondary)
                 }
-                
-                Text(formatUSDValue(blockchainService.balance.usdValue))
-                    .font(.title2)
-                    .foregroundColor(.secondary)
-            }
-            
-            Divider()
-            
-            // Wallet Address
-            VStack(spacing: 8) {
-                Text("Wallet Address")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                
-                HStack {
-                    Text(formatAddress(blockchainService.walletAddress))
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundColor(.primary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    
-                    Button(action: {
-                        UIPasteboard.general.string = blockchainService.walletAddress
-                    }) {
-                        Image(systemName: "doc.on.doc")
-                            .foregroundColor(.blue)
-                    }
-                }
-            }
-            
-            // Last Updated
-            if blockchainService.balance.lastUpdated != Date(timeIntervalSince1970: 0) {
-                Text("Updated \(blockchainService.balance.lastUpdated, style: .relative) ago")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
             }
         }
         .padding(20)
+        .frame(maxWidth: .infinity)
         .background(
             RoundedRectangle(cornerRadius: 16)
                 .fill(.regularMaterial)
@@ -177,14 +134,6 @@ struct WalletView: View {
             
             HStack(spacing: 16) {
                 QuickActionButton(
-                    icon: "qrcode.viewfinder",
-                    title: "Scan QR",
-                    action: {
-                        // TODO: Implement QR scanning
-                    }
-                )
-                
-                QuickActionButton(
                     icon: "link",
                     title: "Pay Link",
                     action: {
@@ -193,10 +142,10 @@ struct WalletView: View {
                 )
                 
                 QuickActionButton(
-                    icon: "square.and.arrow.up",
-                    title: "Share",
+                    icon: "paperplane",
+                    title: "Send",
                     action: {
-                        shareWalletAddress()
+                        showingSendView = true
                     }
                 )
                 
@@ -243,37 +192,9 @@ struct WalletView: View {
     }
     
     // MARK: - Helper Functions
-    private func formatBalance(_ balance: Decimal) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.maximumFractionDigits = 8
-        formatter.minimumFractionDigits = 0
-        return formatter.string(from: balance as NSDecimalNumber) ?? "0"
-    }
-    
-    private func formatUSDValue(_ value: Decimal) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .currency
-        formatter.currencyCode = "USD"
-        return formatter.string(from: value as NSDecimalNumber) ?? "$0.00"
-    }
-    
     private func formatAddress(_ address: String) -> String {
         guard address.count > 10 else { return address }
         return "\(address.prefix(6))...\(address.suffix(4))"
-    }
-    
-    private func shareWalletAddress() {
-        let activityVC = UIActivityViewController(
-            activityItems: [blockchainService.walletAddress],
-            applicationActivities: nil
-        )
-        
-        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-           let window = windowScene.windows.first,
-           let rootViewController = window.rootViewController {
-            rootViewController.present(activityVC, animated: true)
-        }
     }
 }
 
@@ -326,6 +247,19 @@ struct NetworkSettingsView: View {
                         Text("Contract: \(blockchainService.config.btcbContractAddress)")
                             .font(.caption)
                             .foregroundColor(.secondary)
+                    }
+                }
+                
+                // New Section for Copy Wallet Address
+                Section(header: Text("Wallet")) {
+                    Button(action: {
+                        UIPasteboard.general.string = blockchainService.walletAddress
+                    }) {
+                        HStack {
+                            Image(systemName: "doc.on.doc")
+                            Text("Copy Wallet Address")
+                        }
+                        .foregroundColor(.blue) // Make it look like a typical action button
                     }
                 }
                 
@@ -499,6 +433,33 @@ struct QuickActionButton: View {
 // MARK: - Transaction Row
 struct TransactionRow: View {
     let transaction: TransactionItem
+    static let btcPrice: Decimal = 45000 // Placeholder for actual price feed
+
+    private var btcbAmountDecimal: Decimal {
+        // Assuming 18 decimals for transaction log values based on previous successful fixes
+        return FormattingUtils.extractDecimalFromHex(transaction.value, decimals: 18)
+    }
+
+    private var transactionUsdValue: Decimal {
+        return btcbAmountDecimal * Self.btcPrice
+    }
+    
+    // New computed property to handle USD string formatting
+    private var transactionDisplayUSDString: String {
+        let sign = (transaction.type == .received || transaction.type == .claim) ? "+" : "-"
+        let formattedUsd = FormattingUtils.formatUsd(abs(transactionUsdValue))
+        let amountPart: String
+        
+        if formattedUsd.hasPrefix("$") {
+            amountPart = String(formattedUsd.dropFirst())
+        } else if formattedUsd.hasPrefix("-$") { // Should not happen with abs() but good for robustness
+            amountPart = String(formattedUsd.dropFirst(2))
+        }
+        else {
+            amountPart = formattedUsd
+        }
+        return "\(sign)\(amountPart) USD"
+    }
     
     var body: some View {
         HStack(spacing: 12) {
@@ -522,7 +483,8 @@ struct TransactionRow: View {
                     
                     Spacer()
                     
-                    Text(formattedAmount)
+                    // Display USD value of the transaction using the new computed property
+                    Text(transactionDisplayUSDString)
                         .font(.subheadline)
                         .fontWeight(.medium)
                         .foregroundColor(amountColor)
@@ -535,7 +497,8 @@ struct TransactionRow: View {
                     
                     Spacer()
                     
-                    StatusBadge(status: transaction.status)
+                    // StatusBadge removed as per request
+                    // StatusBadge(status: transaction.status)
                 }
             }
         }
@@ -590,18 +553,14 @@ struct TransactionRow: View {
     }
     
     private var formattedAmount: String {
-        let valueDecimal = Decimal(string: transaction.value) ?? 0
-        let btcbAmount = valueDecimal / pow(10, 8) // Convert from wei to BTC.B
-        
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.maximumFractionDigits = 8
-        formatter.minimumFractionDigits = 0
-        
+        // This computed property is no longer directly used in TransactionRow's body for main display
+        // but can be kept if other parts might use it, or removed if fully replaced.
+        // For now, let's assume it's not needed for the row's primary display.
+        // The detail view will construct its own BTC.B string.
+        let amountDecimal = FormattingUtils.extractDecimalFromHex(transaction.value, decimals: 18)
         let sign = (transaction.type == .received || transaction.type == .claim) ? "+" : "-"
-        let amount = formatter.string(from: btcbAmount as NSDecimalNumber) ?? "0"
-        
-        return "\(sign)\(amount) BTC.B"
+        let amountStr = FormattingUtils.formatBtcB(amountDecimal)
+        return "\\(sign)\\(amountStr) BTC.B"
     }
     
     private var amountColor: Color {
@@ -657,25 +616,27 @@ struct StatusBadge: View {
 // MARK: - Empty Transactions View
 struct EmptyTransactionsView: View {
     var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "list.bullet.rectangle")
-                .font(.largeTitle)
-                .foregroundColor(.secondary)
-            
-            Text("No Transactions Yet")
-                .font(.headline)
-                .foregroundColor(.primary)
-            
-            Text("Your transaction history will appear here once you start using your wallet.")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
+        Group {
+            VStack(spacing: 12) {
+                Image(systemName: "list.bullet.rectangle")
+                    .font(.largeTitle)
+                    .foregroundColor(.secondary)
+                
+                Text("No Transactions Yet")
+                    .font(.headline)
+                    .foregroundColor(.primary)
+                
+                Text("Your transaction history will appear here once you start using your wallet.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(40)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(.regularMaterial)
+            )
         }
-        .padding(40)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(.regularMaterial)
-        )
     }
 }
 
@@ -683,6 +644,16 @@ struct EmptyTransactionsView: View {
 struct TransactionDetailView: View {
     let transaction: TransactionItem
     @Environment(\.dismiss) private var dismiss
+    static let btcPrice: Decimal = 45000 // Placeholder, ideally from a shared source
+
+    private var btcbAmountDecimal: Decimal {
+         // Assuming 18 decimals for transaction log values
+        return FormattingUtils.extractDecimalFromHex(transaction.value, decimals: 18)
+    }
+
+    private var transactionUsdValue: Decimal { // For potential display in details
+        return btcbAmountDecimal * Self.btcPrice
+    }
     
     var body: some View {
         NavigationView {
@@ -703,18 +674,21 @@ struct TransactionDetailView: View {
                             .font(.title2)
                             .fontWeight(.bold)
                         
-                        Text(formattedAmount)
+                        // Display BTC.B amount in details as requested
+                        Text(formattedBtcbAmountForDetail)
                             .font(.title)
                             .fontWeight(.semibold)
                             .foregroundColor(amountColor)
                         
-                        StatusBadge(status: transaction.status)
+                        StatusBadge(status: transaction.status) // Kept status badge in detail view
                     }
                     .padding()
                     
                     // Transaction Details
                     VStack(spacing: 16) {
                         DetailRow(title: "Transaction Hash", value: transaction.hash, isCopyable: true)
+                        // Optionally, show USD value here too
+                        DetailRow(title: "Value (USD)", value: FormattingUtils.formatUsd(transactionUsdValue))
                         DetailRow(title: "From", value: transaction.from, isCopyable: true)
                         DetailRow(title: "To", value: transaction.to, isCopyable: true)
                         DetailRow(title: "Block Number", value: transaction.blockNumber)
@@ -740,7 +714,6 @@ struct TransactionDetailView: View {
         }
     }
     
-    // Similar computed properties as TransactionRow
     private var iconName: String {
         switch transaction.type {
         case .received: return "arrow.down.left"
@@ -773,23 +746,26 @@ struct TransactionDetailView: View {
     }
     
     private var formattedAmount: String {
-        let valueDecimal = Decimal(string: transaction.value) ?? 0
-        let btcbAmount = valueDecimal / pow(10, 8)
-        
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.maximumFractionDigits = 8
-        
+        // This is the original BTC.B formatter for details, let's rename to avoid confusion
+        // and ensure it uses the new utility.
+        // This property name `formattedAmount` is used in the original code for the main display in header.
+        // Let's call it `formattedBtcbAmountForDetail`
+        return "This should be replaced by formattedBtcbAmountForDetail"
+    }
+
+    private var formattedBtcbAmountForDetail: String {
         let sign = (transaction.type == .received || transaction.type == .claim) ? "+" : "-"
-        let amount = formatter.string(from: btcbAmount as NSDecimalNumber) ?? "0"
-        
-        return "\(sign)\(amount) BTC.B"
+        // btcbAmountDecimal is already available
+        let amountString = FormattingUtils.formatBtcB(btcbAmountDecimal)
+        return "\(sign)\(amountString) BTC.B"
     }
     
     private var amountColor: Color {
         switch transaction.type {
-        case .received, .claim: return .green
-        case .sent, .contentPurchase, .tip: return .red
+        case .received, .claim:
+            return .green
+        case .sent, .contentPurchase, .tip:
+            return .red
         }
     }
 }
@@ -827,6 +803,111 @@ struct DetailRow: View {
                             .font(.caption)
                     }
                 }
+            }
+        }
+    }
+}
+
+// MARK: - Send View (New View) - Uncommented struct definition
+struct SendView: View {
+    @ObservedObject var blockchainService: BlockchainService
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var recipientAddress: String = ""
+    @State private var amountString: String = ""
+    @State private var showingConfirmationAlert = false
+    @State private var alertMessage: String = ""
+    @State private var sendError: String? = nil
+
+    private var amountDecimal: Decimal? {
+        // Ensure a dot is used as the decimal separator for Decimal conversion
+        let sanitizedAmountString = amountString.replacingOccurrences(of: ",", with: ".")
+        return Decimal(string: sanitizedAmountString)
+    }
+
+    var body: some View {
+        NavigationView {
+            Form {
+                Section(header: Text("Recipient")) {
+                    TextField("Enter wallet address (e.g., 0x...)", text: $recipientAddress)
+                        .textInputAutocapitalization(.never)
+                        .disableAutocorrection(true)
+                }
+
+                Section(header: Text("Amount")) {
+                    HStack {
+                        TextField("0.0", text: $amountString)
+                            .keyboardType(.decimalPad)
+                        Text("BTC.B")
+                            .foregroundColor(.secondary)
+                    }
+                }
+                
+                Section(header: Text("Available Balance")) {
+                    Text("\(FormattingUtils.formatBtcB(blockchainService.balance.btcbBalance)) BTC.B")
+                        .foregroundColor(.secondary)
+                }
+
+                Section {
+                    Button("Review Transaction") {
+                        sendError = nil // Clear previous errors
+                        guard !recipientAddress.isEmpty else {
+                            sendError = "Recipient address cannot be empty."
+                            return
+                        }
+                        // Basic address validation (starts with 0x, length)
+                        guard recipientAddress.hasPrefix("0x") && recipientAddress.count == 42 else {
+                             sendError = "Invalid recipient address format. It should start with '0x' and be 42 characters long."
+                             return
+                        }
+
+                        guard let amount = amountDecimal, amount > 0 else {
+                            sendError = "Please enter a valid positive amount."
+                            return
+                        }
+                        
+                        guard amount <= blockchainService.balance.btcbBalance else {
+                            sendError = "Insufficient balance. You cannot send more than you have."
+                            return
+                        }
+
+                        alertMessage = "You are about to send \(FormattingUtils.formatBtcB(amount)) BTC.B to:\n\(recipientAddress)\n\nThis action cannot be undone."
+                        showingConfirmationAlert = true
+                    }
+                    .disabled(recipientAddress.isEmpty || amountDecimal == nil || amountDecimal ?? 0 <= 0)
+                }
+
+                if let error = sendError {
+                    Section {
+                        Text(error)
+                            .foregroundColor(.red)
+                            .font(.caption)
+                    }
+                }
+            }
+            .navigationTitle("Send BTC.B")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+            }
+            .alert("Confirm Transaction", isPresented: $showingConfirmationAlert) {
+                Button("Confirm Send") {
+                    // Placeholder for actual send logic
+                    if let amount = amountDecimal {
+                        print("Confirmed: Send \(amount) BTC.B to \(recipientAddress)")
+                        // TODO: Integrate with blockchainService.sendToken(to: recipientAddress, amount: amount)
+                        // After successful send (or mock success):
+                        // blockchainService.refreshWalletData() // To update balance and transactions
+                        dismiss()
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(alertMessage)
             }
         }
     }

@@ -1,0 +1,1 @@
+forge create --broadcast --rpc-url https://138.68.175.242.sslip.io/ext/bc/mvVnPTEvCKjGqEvZaAXseWSiLtZ9uc3MgiQzkLzGQtBDebxGY/rpc --private-key <PK> src/BTC.B.sol:BitcoinOnAvalanche --constructor-args 0x100908A2b8C6F5e1C3a41A2f317832b0a38fFD4a 0x100908A2b8C6F5e1C3a41A2f317832b0a38fFD4a 

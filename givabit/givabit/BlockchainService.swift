@@ -15,7 +15,7 @@ struct BlockchainConfig {
         name: "Givabit Network",
         rpcURL: "https://138.68.175.242.sslip.io/ext/bc/mvVnPTEvCKjGqEvZaAXseWSiLtZ9uc3MgiQzkLzGQtBDebxGY/rpc",
         wsURL: "wss://138.68.175.242.sslip.io/ext/bc/mvVnPTEvCKjGqEvZaAXseWSiLtZ9uc3MgiQzkLzGQtBDebxGY/ws",
-        btcbContractAddress: "0x5425890298aed601595a70AB815c96711a31Bc65", // TODO: Update with deployed BTC.b contract address
+        btcbContractAddress: "0x88903c72016062ba3c45e06cf0005939718e11ae",
         chainId: "0xa869"
     )
     
@@ -106,15 +106,16 @@ class BlockchainService: ObservableObject {
     @Published var isLoading: Bool = false
     @Published var isConnected: Bool = false
     @Published var errorMessage: String?
-    @Published var config: BlockchainConfig = .myL1Testnet // Default to your new L1 Testnet config
+    @Published var config: BlockchainConfig = .avalancheGivabit // Default to your new L1 Testnet config
     
     private let keychainService = "com.givabit.wallet"
     nonisolated(unsafe) private var webSocketTask: URLSessionWebSocketTask?
     nonisolated(unsafe) private var urlSession: URLSession?
     @Published var subscriptionId: String?
     private var balanceUpdateTimer: Timer?
+    private var isRefreshingWalletDataInProgress = false
     
-    init(config: BlockchainConfig = .myL1Testnet) {
+    init(config: BlockchainConfig = .avalancheGivabit) {
         self.config = config
         setupWallet()
         setupWebSocket()
@@ -382,9 +383,9 @@ class BlockchainService: ObservableObject {
             
             let walletLower = walletAddress.lowercased()
             if fromAddress.lowercased() == walletLower || toAddress.lowercased() == walletLower {
-                print("Real-time transaction detected: \(txHash)")
-                
-                // Refresh wallet data to get the latest balance and transactions
+                print("WebSocket: Real-time transaction detected: \(txHash). Triggering full refresh.")
+
+                // Trigger a full refresh to update both balance and transactions
                 await refreshWalletData()
             }
         }
@@ -401,18 +402,26 @@ class BlockchainService: ObservableObject {
     
     /// Refreshes wallet balance and transaction history
     func refreshWalletData() async {
+        guard !isRefreshingWalletDataInProgress else {
+            print("Refresh wallet data already in progress. Skipping.")
+            return
+        }
+
+        isRefreshingWalletDataInProgress = true
+        defer { isRefreshingWalletDataInProgress = false }
+
         isLoading = true
         errorMessage = nil
         
+        // Fetch both balance and recent transactions
         async let balanceTask = fetchBalance()
-        async let transactionsTask = fetchTransactions()
+        async let transactionsTask = fetchRecentTransactions()
         
         do {
             let (newBalance, newTransactions) = try await (balanceTask, transactionsTask)
-            
             self.balance = newBalance
             self.transactions = newTransactions.sorted { $0.timestamp > $1.timestamp }
-            
+            print("Wallet data refreshed successfully.")
         } catch {
             print("Failed to refresh wallet data: \(error)")
             errorMessage = "Failed to refresh wallet data: \(error.localizedDescription)"
@@ -438,8 +447,9 @@ class BlockchainService: ObservableObject {
             let balanceHex = String(result.dropFirst(2)) // Remove 0x prefix
             if let balanceInt = UInt64(balanceHex, radix: 16) {
                 let balanceDecimal = Decimal(balanceInt)
-                nativeBalance = balanceDecimal / pow(10, 8) // BTC.b has 8 decimals when used as gas token
-                print("Native BTC.b balance: \(nativeBalance)")
+                // Native currency on EVM-like chains (even if it's BTC.b serving as one) typically uses 18 decimals for eth_getBalance
+                nativeBalance = balanceDecimal / pow(10, 18) 
+                print("Native BTC.b balance (adjusted for 18 decimals): \(nativeBalance)")
             }
         }
         
@@ -458,7 +468,10 @@ class BlockchainService: ObservableObject {
         
         if let contractCode = contractResponse["result"] as? String, contractCode != "0x" {
             // Contract exists, try to get token balance
-            let data = "0x70a08231" + String(walletAddress.dropFirst(2)).padding(toLength: 64, withPad: "0", startingAt: 0)
+            // balanceOf function selector + left-padded address (remove 0x prefix)
+            let addressWithoutPrefix = String(walletAddress.dropFirst(2)).lowercased()
+            let paddedAddress = String(repeating: "0", count: 64 - addressWithoutPrefix.count) + addressWithoutPrefix
+            let data = "0x70a08231" + paddedAddress
             
             let tokenPayload: [String: Any] = [
                 "jsonrpc": "2.0",
@@ -473,16 +486,23 @@ class BlockchainService: ObservableObject {
                 "id": 3
             ]
             
-            let tokenResponse = try await makeRPCCall(payload: tokenPayload)
-            
-            if let result = tokenResponse["result"] as? String {
-                let balanceHex = String(result.dropFirst(2)) // Remove 0x prefix
+            do {
+                let tokenResponse = try await makeRPCCall(payload: tokenPayload)
                 
-                if !balanceHex.isEmpty, let balanceInt = UInt64(balanceHex, radix: 16) {
-                    let balanceDecimal = Decimal(balanceInt)
-                    tokenBalance = balanceDecimal / pow(10, 8) // Assume 8 decimals for token
-                    print("Token balance: \(tokenBalance)")
+                if let result = tokenResponse["result"] as? String {
+                    let balanceHex = String(result.dropFirst(2)) // Remove 0x prefix
+                    
+                    if !balanceHex.isEmpty, let balanceInt = UInt64(balanceHex, radix: 16) {
+                        let balanceDecimal = Decimal(balanceInt)
+                        tokenBalance = balanceDecimal / pow(10, 8) // Assume 8 decimals for token
+                        print("Token balance: \(tokenBalance)")
+                    }
                 }
+            } catch {
+                // Token balance call failed - this is non-critical since we have the native balance
+                print("Warning: Failed to fetch token balance from contract \(config.btcbContractAddress): \(error.localizedDescription)")
+                print("Note: This might be expected if the contract is not yet deployed or is not an ERC20 token.")
+                // Continue with tokenBalance = 0
             }
         } else {
             print("Warning: Token contract not found at address \(config.btcbContractAddress)")
@@ -502,48 +522,131 @@ class BlockchainService: ObservableObject {
         )
     }
     
-    /// Fetches recent transactions for the wallet
-    private func fetchTransactions() async throws -> [TransactionItem] {
-        // Get latest block number
-        let latestBlockResponse = try await makeRPCCall(payload: [
+    /// Fetches recent transactions using eth_getLogs for efficiency
+    private func fetchRecentTransactions() async throws -> [TransactionItem] {
+        // Get the current block number
+        let blockNumberResponse = try await makeRPCCall(payload: [
             "jsonrpc": "2.0",
             "method": "eth_blockNumber",
             "params": [],
             "id": 1
         ])
         
-        guard let latestBlockHex = latestBlockResponse["result"] as? String,
+        guard let latestBlockHex = blockNumberResponse["result"] as? String,
               let latestBlock = Int(latestBlockHex.dropFirst(2), radix: 16) else {
             throw WalletError.invalidResponse
         }
         
+        // Calculate from block (last 100 blocks or from block 0 if chain is new)
+        let fromBlock = max(0, latestBlock - 100)
+        
+        // Prepare topics for Transfer events involving our wallet
+        let transferEventSignature = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+        let paddedAddress = "0x000000000000000000000000" + String(walletAddress.dropFirst(2)).lowercased()
+        
+        // Query for transfers FROM our address
+        let fromLogsPayload: [String: Any] = [
+            "jsonrpc": "2.0",
+            "method": "eth_getLogs",
+            "params": [[
+                "fromBlock": "0x" + String(fromBlock, radix: 16),
+                "toBlock": "latest",
+                "address": config.btcbContractAddress,
+                "topics": [
+                    transferEventSignature,
+                    paddedAddress, // from address
+                    nil // any to address
+                ]
+            ]],
+            "id": 2
+        ]
+        
+        // Query for transfers TO our address
+        let toLogsPayload: [String: Any] = [
+            "jsonrpc": "2.0",
+            "method": "eth_getLogs",
+            "params": [[
+                "fromBlock": "0x" + String(fromBlock, radix: 16),
+                "toBlock": "latest",
+                "address": config.btcbContractAddress,
+                "topics": [
+                    transferEventSignature,
+                    nil, // any from address
+                    paddedAddress // to address
+                ]
+            ]],
+            "id": 3
+        ]
+        
         var allTransactions: [TransactionItem] = []
         
-        // Fetch transactions from recent blocks (last 20 blocks or all if fewer)
-        let startBlock = max(0, latestBlock - 20)
-        
-        for blockNumber in startBlock...latestBlock {
-            let blockHex = String(blockNumber, radix: 16)
-            
-            let blockResponse = try await makeRPCCall(payload: [
-                "jsonrpc": "2.0",
-                "method": "eth_getBlockByNumber",
-                "params": ["0x" + blockHex, true],
-                "id": 1
-            ])
-            
-            if let blockData = blockResponse["result"] as? [String: Any],
-               let transactions = blockData["transactions"] as? [[String: Any]] {
-                
-                for txData in transactions {
-                    if let tx = parseTransaction(txData, blockNumber: String(blockNumber)) {
+        // Fetch logs with error handling
+        do {
+            let fromLogsResponse = try await makeRPCCall(payload: fromLogsPayload)
+            if let fromLogs = fromLogsResponse["result"] as? [[String: Any]] {
+                for log in fromLogs {
+                    if let tx = parseTransferLog(log, type: .sent) {
                         allTransactions.append(tx)
                     }
                 }
             }
+        } catch {
+            print("Warning: Failed to fetch outgoing transfer logs: \(error.localizedDescription)")
         }
         
-        return allTransactions
+        do {
+            let toLogsResponse = try await makeRPCCall(payload: toLogsPayload)
+            if let toLogs = toLogsResponse["result"] as? [[String: Any]] {
+                for log in toLogs {
+                    if let tx = parseTransferLog(log, type: .received) {
+                        allTransactions.append(tx)
+                    }
+                }
+            }
+        } catch {
+            print("Warning: Failed to fetch incoming transfer logs: \(error.localizedDescription)")
+        }
+        
+        // Sort by block number (newest first) and return only the last 5
+        allTransactions.sort { 
+            if let block1 = Int($0.blockNumber.dropFirst(2), radix: 16),
+               let block2 = Int($1.blockNumber.dropFirst(2), radix: 16) {
+                return block1 > block2
+            }
+            return false
+        }
+        
+        return Array(allTransactions.prefix(5))
+    }
+    
+    /// Parses a transfer log into a TransactionItem
+    private func parseTransferLog(_ log: [String: Any], type: TransactionItem.TransactionType) -> TransactionItem? {
+        guard let topics = log["topics"] as? [String],
+              topics.count >= 3,
+              let transactionHash = log["transactionHash"] as? String,
+              let blockNumber = log["blockNumber"] as? String,
+              let data = log["data"] as? String else {
+            return nil
+        }
+        
+        // Extract addresses from topics (remove padding)
+        let fromAddress = "0x" + topics[1].suffix(40)
+        let toAddress = "0x" + topics[2].suffix(40)
+        
+        // Parse value from data field
+        let valueHex = data.dropFirst(2) // Remove 0x
+        
+        return TransactionItem(
+            id: transactionHash,
+            hash: transactionHash,
+            from: fromAddress,
+            to: toAddress,
+            value: data, // Keep full hex value with 0x prefix
+            timestamp: Date(), // We'll use current date as we don't have block timestamp
+            blockNumber: blockNumber,
+            type: type,
+            status: .confirmed // Logs are only for confirmed transactions
+        )
     }
     
     /// Makes RPC call to configured blockchain
@@ -593,44 +696,36 @@ class BlockchainService: ObservableObject {
         
         return json
     }
-    
-    /// Parses transaction data from blockchain response
-    private func parseTransaction(_ txData: [String: Any], blockNumber: String) -> TransactionItem? {
-        guard let hash = txData["hash"] as? String,
-              let from = txData["from"] as? String,
-              let value = txData["value"] as? String else {
-            return nil
-        }
-        
-        // Handle contract creation (to is null)
-        let to = txData["to"] as? String ?? "Contract Creation"
-        
-        // Only include transactions involving our wallet (native transfers)
-        let walletLower = walletAddress.lowercased()
-        let isRelevant = from.lowercased() == walletLower || to.lowercased() == walletLower
-        
-        guard isRelevant else { return nil }
-        
-        let type: TransactionItem.TransactionType = from.lowercased() == walletLower ? .sent : .received
-        
-        return TransactionItem(
-            id: hash,
-            hash: hash,
-            from: from,
-            to: to,
-            value: value,
-            timestamp: Date(),
-            blockNumber: blockNumber,
-            type: type,
-            status: .confirmed
-        )
-    }
+
     
     /// Starts periodic balance updates (less frequent with WebSocket)
     private func startBalanceUpdates() {
         balanceUpdateTimer = Timer.scheduledTimer(withTimeInterval: 60.0, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                await self?.refreshWalletData()
+                guard let self = self else { return }
+
+                // If a full refresh (isRefreshingWalletDataInProgress) or any other loading operation (isLoading)
+                // is already in progress, skip this lighter background balance update.
+                if self.isRefreshingWalletDataInProgress || self.isLoading {
+                    print("Timer: Balance-only refresh skipped: Another operation (full refresh or other loading) in progress.")
+                    return
+                }
+                
+                print("Timer: Triggering balance-only refresh.")
+                self.isLoading = true // Indicate loading for this specific operation.
+                // We won't clear self.errorMessage here, to let errors from more critical operations persist.
+                
+                do {
+                    let newBalance = try await self.fetchBalance() // fetchBalance() gets the latest balance
+                    self.balance = newBalance // Update the published balance
+                    print("Timer: Balance-only refresh successful.")
+                } catch {
+                    // Log the error for debugging, but don't update self.errorMessage
+                    // as this is a background fallback. User-initiated or WebSocket-triggered
+                    // refreshes should be the ones to display prominent errors.
+                    print("Timer: Failed to refresh balance only during scheduled update: \(error.localizedDescription)")
+                }
+                self.isLoading = false // Done with this specific operation.
             }
         }
     }
