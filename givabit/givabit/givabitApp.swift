@@ -11,7 +11,8 @@ import SwiftUI
 struct givabitApp: App {
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            WalletView2()
+                .preferredColorScheme(.dark)
         }
     }
 }

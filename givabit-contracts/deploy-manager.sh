@@ -1,0 +1,1 @@
+forge script --broadcast --rpc-url https://138.68.175.242.sslip.io/ext/bc/mvVnPTEvCKjGqEvZaAXseWSiLtZ9uc3MgiQzkLzGQtBDebxGY/rpc --private-key <PK> script/GatedLinkAccessManager.s.sol:GatedLinkAccessManagerScript 

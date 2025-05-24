@@ -39,12 +39,53 @@ struct WalletBalance {
     let lastUpdated: Date
 }
 
+// MARK: - Price API Models
+
+// CoinGecko (Old - kept for reference or if you switch back)
+struct CoinGeckoPriceResponse: Codable {
+    let bitcoin: BitcoinPrice?
+}
+
+struct BitcoinPrice: Codable {
+    let usd: Double?
+}
+
+// CoinMarketCap (New)
+struct CoinMarketCapResponse: Codable {
+    let data: [String: CoinMarketCapCoinData]?
+    let status: CoinMarketCapStatus?
+}
+
+struct CoinMarketCapCoinData: Codable {
+    let id: Int?
+    let name: String?
+    let symbol: String?
+    let slug: String?
+    let quote: [String: CoinMarketCapQuote]?
+}
+
+struct CoinMarketCapQuote: Codable {
+    let price: Double?
+    // Add other fields if needed, e.g., market_cap, volume_24h
+}
+
+struct CoinMarketCapStatus: Codable {
+    let timestamp: String?
+    let error_code: Int?
+    let error_message: String?
+    // Add other fields if needed
+}
+
+// End Price API Models
+
 struct TransactionItem: Identifiable, Codable {
     let id: String
     let hash: String
     let from: String
     let to: String
-    let value: String
+    let rawValueData: String // Renamed from 'value'
+    let tokenAmount: Decimal // New: Parsed token amount
+    let usdValue: Decimal?   // New: USD value of the transaction
     let timestamp: Date
     let blockNumber: String
     let type: TransactionType
@@ -107,6 +148,7 @@ class BlockchainService: ObservableObject {
     @Published var isConnected: Bool = false
     @Published var errorMessage: String?
     @Published var config: BlockchainConfig = .avalancheGivabit // Default to your new L1 Testnet config
+    @Published var currentBTCPriceUSD: Decimal? // New: For storing fetched BTC price
     
     private let keychainService = "com.givabit.wallet"
     nonisolated(unsafe) private var webSocketTask: URLSessionWebSocketTask?
@@ -400,6 +442,58 @@ class BlockchainService: ObservableObject {
     
     // MARK: - Blockchain Interaction
     
+    /// Fetches the current BTC price from CoinMarketCap
+    private func fetchCurrentBTCPrice() async {
+        // guard let url = URL(string: "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd") else { // OLD CoinGecko URL
+        //     print("Error: Invalid CoinGecko URL")
+        //     return
+        // }
+        
+        let apiKey = "6150a61f-eeec-455b-84c0-d65bfc6474f6" // <-- IMPORTANT: Replace with your actual API key
+
+        guard var components = URLComponents(string: "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest") else {
+            print("Error: Invalid CoinMarketCap URL")
+            return
+        }
+        components.queryItems = [
+            URLQueryItem(name: "slug", value: "bitcoin"),
+            URLQueryItem(name: "convert", value: "USD")
+        ]
+
+        guard let url = components.url else {
+            print("Error: Could not construct CoinMarketCap URL with parameters")
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.addValue("application/json", forHTTPHeaderField: "Accepts")
+        request.addValue(apiKey, forHTTPHeaderField: "X-CMC_PRO_API_KEY")
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+                let responseBody = String(data: data, encoding: .utf8) ?? "No response body"
+                print("Error: CoinMarketCap API request failed. Status: \((response as? HTTPURLResponse)?.statusCode ?? 0), Body: \(responseBody)")
+                return
+            }
+
+            let decodedResponse = try JSONDecoder().decode(CoinMarketCapResponse.self, from: data)
+            
+            if let btcData = decodedResponse.data?["1"], // "1" is Bitcoin's ID in CoinMarketCap
+               let usdQuote = btcData.quote?["USD"],
+               let btcPrice = usdQuote.price {
+                self.currentBTCPriceUSD = Decimal(btcPrice)
+                print("Successfully fetched BTC price from CoinMarketCap: $\(self.currentBTCPriceUSD ?? 0)")
+            } else {
+                print("Error: Could not parse BTC price from CoinMarketCap response. Status: \(decodedResponse.status?.error_message ?? "Unknown error")")
+                let responseString = String(data: data, encoding: .utf8) ?? "Could not decode response string"
+                print("Full CoinMarketCap Response: \(responseString)")
+            }
+        } catch {
+            print("Error fetching or decoding BTC price from CoinMarketCap: \(error.localizedDescription)")
+        }
+    }
+
     /// Refreshes wallet balance and transaction history
     func refreshWalletData() async {
         guard !isRefreshingWalletDataInProgress else {
@@ -412,6 +506,9 @@ class BlockchainService: ObservableObject {
 
         isLoading = true
         errorMessage = nil
+
+        // Fetch current BTC price first
+        await fetchCurrentBTCPrice()
         
         // Fetch both balance and recent transactions
         async let balanceTask = fetchBalance()
@@ -494,7 +591,7 @@ class BlockchainService: ObservableObject {
                     
                     if !balanceHex.isEmpty, let balanceInt = UInt64(balanceHex, radix: 16) {
                         let balanceDecimal = Decimal(balanceInt)
-                        tokenBalance = balanceDecimal / pow(10, 8) // Assume 8 decimals for token
+                        tokenBalance = balanceDecimal / pow(10, 18) // Assume 18 decimals for token
                         print("Token balance: \(tokenBalance)")
                     }
                 }
@@ -509,7 +606,7 @@ class BlockchainService: ObservableObject {
         }
         
         // Calculate total USD value (BTC.b price - in production use real price feeds)
-        let btcPrice: Decimal = 45000 // $45,000 per BTC.b (Bitcoin price)
+        let btcPrice = self.currentBTCPriceUSD ?? 0 // Use fetched price, default to 0 if not available
         
         // On this L1, native balance IS BTC.b balance
         let usdValue = nativeBalance * btcPrice
@@ -635,13 +732,24 @@ class BlockchainService: ObservableObject {
         
         // Parse value from data field
         let valueHex = data.dropFirst(2) // Remove 0x
+        var tokenAmount: Decimal = 0
+        if !valueHex.isEmpty, let valueInt = UInt64(String(valueHex), radix: 16) {
+            tokenAmount = Decimal(valueInt) / pow(10, 18) // UPDATED: Assuming log data uses 18 decimals like native L1 token
+        }
+
+        var usdValue: Decimal? = nil
+        if let currentPrice = self.currentBTCPriceUSD {
+            usdValue = tokenAmount * currentPrice
+        }
         
         return TransactionItem(
             id: transactionHash,
             hash: transactionHash,
             from: fromAddress,
             to: toAddress,
-            value: data, // Keep full hex value with 0x prefix
+            rawValueData: data, // Keep full hex value with 0x prefix
+            tokenAmount: tokenAmount,
+            usdValue: usdValue,
             timestamp: Date(), // We'll use current date as we don't have block timestamp
             blockNumber: blockNumber,
             type: type,
@@ -704,28 +812,24 @@ class BlockchainService: ObservableObject {
             Task { @MainActor in
                 guard let self = self else { return }
 
-                // If a full refresh (isRefreshingWalletDataInProgress) or any other loading operation (isLoading)
-                // is already in progress, skip this lighter background balance update.
                 if self.isRefreshingWalletDataInProgress || self.isLoading {
                     print("Timer: Balance-only refresh skipped: Another operation (full refresh or other loading) in progress.")
                     return
                 }
                 
-                print("Timer: Triggering balance-only refresh.")
-                self.isLoading = true // Indicate loading for this specific operation.
-                // We won't clear self.errorMessage here, to let errors from more critical operations persist.
+                print("Timer: Triggering price and balance refresh.")
+                self.isLoading = true
                 
+                await self.fetchCurrentBTCPrice() // Fetch price first
+
                 do {
-                    let newBalance = try await self.fetchBalance() // fetchBalance() gets the latest balance
-                    self.balance = newBalance // Update the published balance
-                    print("Timer: Balance-only refresh successful.")
+                    let newBalance = try await self.fetchBalance()
+                    self.balance = newBalance
+                    print("Timer: Price and balance refresh successful.")
                 } catch {
-                    // Log the error for debugging, but don't update self.errorMessage
-                    // as this is a background fallback. User-initiated or WebSocket-triggered
-                    // refreshes should be the ones to display prominent errors.
-                    print("Timer: Failed to refresh balance only during scheduled update: \(error.localizedDescription)")
+                    print("Timer: Failed to refresh price and balance during scheduled update: \(error.localizedDescription)")
                 }
-                self.isLoading = false // Done with this specific operation.
+                self.isLoading = false
             }
         }
     }
