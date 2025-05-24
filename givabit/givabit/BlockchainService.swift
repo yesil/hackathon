@@ -191,13 +191,7 @@ class BlockchainService: ObservableObject {
         } else {
             createNewWallet()
         }
-        
-        print("=== WALLET ADDRESS ===")
-        print("Your wallet address: \(walletAddress)")
-        print("Recent transaction to: 0xe81430d54414dc122a6cd8ef48834fd17a41141b")
-        print("Addresses match: \(walletAddress.lowercased() == "0xe81430d54414dc122a6cd8ef48834fd17a41141b")")
-        print("=====================")
-        
+                
         // Start loading balance and transactions
         Task {
             await refreshWalletData()

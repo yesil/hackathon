@@ -91,7 +91,7 @@ struct WalletView2: View {
             }
             .tag(0)
 
-            ContentPlaceholderView()
+            UserContentView(blockchainService: blockchainService)
                 .tabItem {
                     Label("Content", image: "content")
                 }
