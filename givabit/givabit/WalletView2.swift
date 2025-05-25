@@ -28,6 +28,9 @@ struct WalletView2: View {
     @EnvironmentObject var deepLinkHandler: DeepLinkHandler
     @StateObject private var blockchainService = BlockchainService()
 
+    @State private var showingBuyCodeAlert: Bool = false
+    @State private var manualBuyCodeInput: String = ""
+
     // State for the transaction tabs (Incoming/Outgoing)
     @State private var selectedTransactionType: TransactionFilterType = .incoming
     @State private var expandedTransactionIDs: Set<String> = [] // New state for expanded IDs
@@ -113,6 +116,13 @@ struct WalletView2: View {
                     // to prevent it from re-appearing if the view re-renders.
                     deepLinkHandler.clearPendingBuyLink()
                 }
+        }
+        .onChange(of: deepLinkHandler.pendingBuyContext) { newContext in
+            if let context = newContext {
+                print("WalletView2: Detected change in pendingBuyContext. New shortCode: \(context.shortCode). Sheet should present.")
+            } else {
+                print("WalletView2: Detected pendingBuyContext changed to nil. Sheet should dismiss if it was presented by this item.")
+            }
         }
         .onAppear {
             // Customize TabView appearance
@@ -212,9 +222,12 @@ struct WalletView2: View {
         HStack(spacing: 15) {
             QuickActionWalletButton(imageName: "withdraw-1", title: "Withdraw credit", action: { /* TODO */ })
             QuickActionWalletButton(imageName: "add_credit", title: "Add credit", action: { /* TODO */ })
-            QuickActionWalletButton(imageName: "more", title: "More", action: { /* TODO */ })
+            QuickActionWalletButton(imageName: "more", title: "More", action: { 
+                // Action for "More" button
+                showingBuyCodeAlert = true
+            })
         }
-        .padding(.horizontal) // Add padding if buttons seem too close to edge
+        .padding(.horizontal) 
     }
 
     var recentTransactions: some View {
@@ -259,6 +272,26 @@ struct WalletView2: View {
             .padding(.top, 10)
 
         }
+        .alert("Enter Buy Code", isPresented: $showingBuyCodeAlert, actions: {
+            TextField("Buy Code", text: $manualBuyCodeInput)
+                .autocapitalization(.none)
+                .disableAutocorrection(true)
+            Button("Submit") {
+                if !manualBuyCodeInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    print("Manual buy code submitted: \(manualBuyCodeInput)")
+                    deepLinkHandler.handleBuyLink(shortCode: manualBuyCodeInput.trimmingCharacters(in: .whitespacesAndNewlines), priceInERC20: nil)
+                    manualBuyCodeInput = "" // Reset input
+                } else {
+                    // Optionally show an error or do nothing if input is empty
+                    print("Manual buy code input was empty.")
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                manualBuyCodeInput = "" // Reset input
+            }
+        }, message: {
+            Text("Please enter the unique buy code to access the content.")
+        })
     }
 
     var transactionTypePicker: some View {
@@ -362,6 +395,7 @@ extension Color {
     static let givabitLighterPurple = Color(red: 80/255, green: 50/255, blue: 130/255)
     static let givabitAccent = Color(red: 220/255, green: 210/255, blue: 255/255)
     static let givabitGold = Color(red: 255/255, green: 215/255, blue: 0/255)
+    static let givabitDarkPurple = Color(red: 30/255, green: 15/255, blue: 60/255)
 }
 
 // Formatting Utilities (Copied)
