@@ -4,6 +4,9 @@ import SwiftUI
 struct ContentCardView: View {
     let link: LinkItem
     @ObservedObject var blockchainService: BlockchainService
+    @State private var isShowingSocialPosts: Bool = false // State for toggling social posts
+    @State private var twitterCopied: Bool = false // State for Twitter copy feedback
+    @State private var instagramCopied: Bool = false // State for Instagram copy feedback
 
     // Helper to format date string to a more readable format
     private func formatDate(_ dateString: String) -> String {
@@ -101,17 +104,98 @@ struct ContentCardView: View {
 
             // "See details" Button
             Button(action: {
-                // TODO: Action for see details
-                print("See details for \(link.linkId) tapped")
+                withAnimation { // Add animation for a smoother toggle
+                    isShowingSocialPosts.toggle()
+                }
+                print("See details for \(link.linkId) tapped. Social posts visible: \(isShowingSocialPosts)")
             }) {
-                Text("See details")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(Color.givabitAccent) // Use accent color for the button text
-                    .padding(.vertical, 8)
-                    .padding(.leading)
+                HStack { // Wrap in HStack to add a chevron icon
+                    Text(isShowingSocialPosts ? "Hide details" : "See details")
+                        .font(.system(size: 14, weight: .semibold))
+                    Image(systemName: isShowingSocialPosts ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 12, weight: .semibold))
+                }
+                .foregroundColor(Color.givabitAccent) 
+                .padding(.vertical, 8)
+                .padding(.leading)
+            }
+
+            // Display Social Posts if available and if toggled visible
+            if isShowingSocialPosts, let socialPosts = link.socialPosts {
+                VStack(alignment: .leading, spacing: 10) { // Increased spacing for tappable areas
+                    if let twitterPost = socialPosts.twitter, !twitterPost.isEmpty {
+                        Button(action: {
+                            UIPasteboard.general.string = twitterPost
+                            print("Copied Twitter post to clipboard: \(twitterPost)")
+                            withAnimation {
+                                self.twitterCopied = true
+                                self.instagramCopied = false // Reset other if active
+                            }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                                withAnimation {
+                                    self.twitterCopied = false
+                                }
+                            }
+                        }) {
+                            HStack(alignment: .top) { 
+                                Image(systemName: "at") 
+                                    .font(.system(size: 14))
+                                    .foregroundColor(Color.givabitAccent.opacity(0.7))
+                                    .padding(.top, 2) 
+                                Text(twitterPost) 
+                                    .font(.system(size: 13, weight: .regular))
+                                    .foregroundColor(Color.givabitAccent.opacity(0.9))
+                                    .lineLimit(3)
+                                    // .textSelection(.enabled) // Removed in favor of tap-to-copy
+                                Spacer() // Ensure button takes full width for easier tapping
+                                Image(systemName: twitterCopied ? "checkmark.circle.fill" : "doc.on.doc") 
+                                    .font(.system(size: twitterCopied ? 14 : 12, weight: twitterCopied ? .medium : .light))
+                                    .foregroundColor(twitterCopied ? .green : Color.givabitAccent.opacity(0.6))
+                            }
+                        }
+                        .buttonStyle(PlainButtonStyle()) // Use PlainButtonStyle to keep text color
+                    }
+                    if let instagramPost = socialPosts.instagram, !instagramPost.isEmpty {
+                        Button(action: {
+                            UIPasteboard.general.string = instagramPost
+                            print("Copied Instagram post to clipboard: \(instagramPost)")
+                            withAnimation {
+                                self.instagramCopied = true
+                                self.twitterCopied = false // Reset other if active
+                            }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                                withAnimation {
+                                    self.instagramCopied = false
+                                }
+                            }
+                        }) {
+                            HStack(alignment: .top) { 
+                                Image(systemName: "camera.circle") 
+                                    .font(.system(size: 14))
+                                    .foregroundColor(Color.givabitAccent.opacity(0.7))
+                                    .padding(.top, 2) 
+                                Text(instagramPost) 
+                                    .font(.system(size: 13, weight: .regular))
+                                    .foregroundColor(Color.givabitAccent.opacity(0.9))
+                                    .lineLimit(3)
+                                    // .textSelection(.enabled) // Removed
+                                Spacer() // Ensure button takes full width
+                                Image(systemName: instagramCopied ? "checkmark.circle.fill" : "doc.on.doc") 
+                                    .font(.system(size: instagramCopied ? 14 : 12, weight: instagramCopied ? .medium : .light))
+                                    .foregroundColor(instagramCopied ? .green : Color.givabitAccent.opacity(0.6))
+                            }
+                        }
+                        .buttonStyle(PlainButtonStyle()) // Use PlainButtonStyle
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.top, 5)
+                // Add padding to the bottom of the card if social posts are present, 
+                // otherwise the main VStack's bottom padding will apply.
+                .padding(.bottom, (socialPosts.twitter != nil || socialPosts.instagram != nil) ? 10 : 0)
             }
         }
-        .padding(.bottom, 10) // Add some padding at the bottom of the card
+        .padding(.bottom, 10) // This was the original overall bottom padding, may need adjustment if the above is added
         .background(Color.givabitLighterPurple.opacity(0.7)) // Match WalletView2 card background
         .cornerRadius(12)
         .shadow(color: Color.black.opacity(0.1), radius: 3, x: 0, y: 1)

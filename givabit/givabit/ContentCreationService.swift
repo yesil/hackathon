@@ -30,7 +30,7 @@ enum ContentCreationError: Error, LocalizedError {
 // MARK: - Content Creation Service
 class ContentCreationService {
     // Define the endpoint URL directly or make it configurable
-    private let createLinkURLString = "https://givabit-server-krlus.ondigitalocean.app/givabitserver/create-gated-link"
+    private let createLinkURLString = "https://givabit-server-krlus.ondigitalocean.app/create-gated-link"
 
     func createLink(requestData: CreateContentRequest, completion: @escaping (Result<Void, ContentCreationError>) -> Void) {
         guard let url = URL(string: createLinkURLString) else {

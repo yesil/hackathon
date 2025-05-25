@@ -1,38 +1,9 @@
 import SwiftUI
 
-// MARK: - Data Models for API Response
-struct LinkItem: Identifiable, Decodable {
-    let id = UUID() // Add identifiable conformance for ForEach
-    let linkId: String
-    let title: String
-    let buyShortCode: String
-    let accessShortCode: String
-    let originalUrl: String
-    let priceInERC20: String
-    let isActive: Int
-    let createdAt: String
-    let shareableBuyLink: String
-    let socialPosts: SocialPosts
+// LinkItem, SocialPosts, and ApiResponse (if it was only for links) are now in LinkItemModels.swift
+// and should be removed from here.
 
-    // CodingKeys to map JSON keys to struct properties if names differ (optional if they match)
-    enum CodingKeys: String, CodingKey {
-        case linkId, title, buyShortCode, accessShortCode, originalUrl, priceInERC20, isActive, createdAt, shareableBuyLink, socialPosts
-    }
-}
-
-struct SocialPosts: Decodable {
-    let twitter: String?
-    let instagram: String?
-}
-
-// The PaginationInfo struct will be removed.
-
-struct ApiResponse: Decodable {
-    let links: [LinkItem]
-    // The pagination property will be removed.
-}
-
-// MARK: - API Service (Placeholder)
+// MARK: - API Service (for creator links list)
 class ContentAPIService: ObservableObject {
     @Published var links: [LinkItem] = []
     @Published var isLoading: Bool = false
@@ -40,7 +11,7 @@ class ContentAPIService: ObservableObject {
 
     private let creatorWalletAddress: String
     private var endpointUrl: String {
-        "https://givabit-server-krlus.ondigitalocean.app/givabitserver/links/creator/\(creatorWalletAddress)"
+        "https://givabit-server-krlus.ondigitalocean.app/links/creator/\(creatorWalletAddress)"
     }
 
     init(creatorWalletAddress: String) {
@@ -93,7 +64,7 @@ class ContentAPIService: ObservableObject {
             dateFormatter.timeZone = TimeZone(secondsFromGMT: 0)
             decoder.dateDecodingStrategy = .formatted(dateFormatter)
 
-            let apiResponse = try decoder.decode(ApiResponse.self, from: data)
+            let apiResponse = try decoder.decode(CreatorLinksResponse.self, from: data)
             
             DispatchQueue.main.async {
                 self.links = apiResponse.links

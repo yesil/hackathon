@@ -25,6 +25,7 @@ struct ProfilePlaceholderView: View {
 
 // MARK: - WalletView2 (Main View from Mockup)
 struct WalletView2: View {
+    @EnvironmentObject var deepLinkHandler: DeepLinkHandler
     @StateObject private var blockchainService = BlockchainService()
 
     // State for the transaction tabs (Incoming/Outgoing)
@@ -48,23 +49,23 @@ struct WalletView2: View {
     @State private var sampleGroupedTransactions: [GroupedTransaction] = [
         GroupedTransaction(
             id: "tx1_new",
-            title: "FAKER FULL INTERVIEW - EXCLUSIVE",
+            title: "Itchy Boots: I went to ANOTHER PLANET (unreal landscape)!",
             iconName: "smiley.fill", // Using SF symbol that resembles the emoji in mockup
             subDetails: [
-                TransactionSubDetail(platformName: "Youtube", amountUSD: 10.01, amountBTCB: 0.0001),
-                TransactionSubDetail(platformName: "Instagram", amountUSD: 8.03, amountBTCB: 0.00008),
+                TransactionSubDetail(platformName: "Instagram", amountUSD: 20.03, amountBTCB: 0.00008),
+                TransactionSubDetail(platformName: "X", amountUSD: 13.98, amountBTCB: 0.000039),
                 TransactionSubDetail(platformName: "Facebook", amountUSD: 4.01, amountBTCB: 0.00004),
-                TransactionSubDetail(platformName: "X", amountUSD: 3.98, amountBTCB: 0.000039),
+                TransactionSubDetail(platformName: "Youtube", amountUSD: 10.01, amountBTCB: 0.0001),
                 TransactionSubDetail(platformName: "TikTok", amountUSD: 2.31, amountBTCB: 0.000023)
             ],
-            totalUSD: 28.34,
-            totalBTCB: 0.000282,
+            totalUSD: 58.34,
+            totalBTCB: 0.000582,
             isIncoming: true,
             date: Date().addingTimeInterval(-3600)
         ),
         GroupedTransaction(
             id: "tx2_new_outgoing",
-            title: "Monthly Subscription: Pro Tier",
+            title: "FAKER FULL INTERVIEW - EXCLUSIVE",
             iconName: "creditcard.fill",
             subDetails: [],
             totalUSD: 15.00,
@@ -104,6 +105,15 @@ struct WalletView2: View {
                 .tag(2)
         }
         .accentColor(Color.givabitAccent) // Color for selected tab icon and text
+        // Sheet for BuyContentView triggered by DeepLinkHandler
+        .sheet(item: $deepLinkHandler.pendingBuyContext) { context in
+            BuyContentView(buyContext: context, blockchainService: blockchainService)
+                .onDisappear {
+                    // Important: Clear the pending link once the sheet is dismissed
+                    // to prevent it from re-appearing if the view re-renders.
+                    deepLinkHandler.clearPendingBuyLink()
+                }
+        }
         .onAppear {
             // Customize TabView appearance
             let newTabBarBackgroundColor = UIColor.white // White background
