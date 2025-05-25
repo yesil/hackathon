@@ -281,7 +281,7 @@ struct BuyContentView_Previews: PreviewProvider {
                 creatorAddress: "0xe81430d54414dc122a6cd8ef48834fd17a41141b",
                 priceInERC20: "15000000000000000", // Should match context or be the source
                 paymentContractAddress: "0x6a064800b5255d6a4732f28cb297ffa14e098bc1",
-                isActiveOnDb: 1
+                isActiveOnDb: true
             )
             return view
         }()

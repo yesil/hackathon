@@ -10,7 +10,7 @@ struct LinkItem: Identifiable, Decodable {
     let accessShortCode: String
     let originalUrl: String
     let priceInERC20: String
-    let isActive: Int
+    let isActive: Bool
     let createdAt: String 
     let shareableBuyLink: String
     let socialPosts: SocialPosts?
@@ -36,6 +36,6 @@ struct BuyLinkDetail: Identifiable, Decodable, Equatable {
     let creatorAddress: String
     let priceInERC20: String
     let paymentContractAddress: String
-    let isActiveOnDb: Int
+    let isActiveOnDb: Bool
     // Note: Description is NOT part of this response structure.
 } 
